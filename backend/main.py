@@ -4,6 +4,7 @@ from core.propagation import free_space_transfer_function, propagate_beam, apply
 from core.geometry import get_trajectory_altitudes
 from core.turbulence import generate_phase_screen
 from core.metrics import calculate_beam_wander, calculate_scintillation
+from core.attenuation import calculate_atmospheric_attenuation, apply_attenuation
 import numpy as np
 
 # 1. API Application initialising
@@ -88,7 +89,7 @@ def calculate_trajectory(distance_km: float = 100.0, tx_altitude_m: float = 15.0
     }
 
 @app.get("/propagate-turbulence")
-def test_turbulence_propagation(distance_km: float=1.0, Cn2: float= 1e-1, seed: int=42):
+def test_turbulence_propagation(distance_km: float=1.0, Cn2: float= 1e-1, seed: int=42,attenuation_db_km: float = 0.2):
     """ passing laser through phase screens"""
     grid_size = 256
     grid_length_m = 0.5
@@ -109,19 +110,23 @@ def test_turbulence_propagation(distance_km: float=1.0, Cn2: float= 1e-1, seed: 
     H = free_space_transfer_function(N=grid_size, dx=dx, wavelength=wavelength_m, dz=distance_m)
     final_field = propagate_beam(distorted_field, H)
 
-    #final metrics
+    # final metrics
     final_intensity = np.abs(final_field)**2
-    final_peak = float(np.max(final_intensity))
-    wander_m = calculate_beam_wander(final_intensity, X, Y)
-    scint_index = calculate_scintillation(final_intensity)
+    transmittance, total_loss_db = calculate_atmospheric_attenuation(distance_km, attenuation_db_km)
+    attenuated_intensity = apply_attenuation(final_intensity, transmittance)
+    final_peak = float(np.max(attenuated_intensity))
+    wander_m = calculate_beam_wander(attenuated_intensity, X, Y)
+    scint_index = calculate_scintillation(attenuated_intensity)
 
     return {
-        "message": "Beam propagated and metrics calculated",
+        "message": "Beam propagated with turbulence and attenuation",
         "metrics": {
             "initial_peak": round(initial_peak, 4),
             "final_peak": round(final_peak, 4),
+            "total_attenuation_db": round(total_loss_db, 2),
+            "transmittance_percentage": round(transmittance * 100, 2),
             "intensity_drop_percentage": round((1 - (final_peak/initial_peak)) * 100, 2),
-            "beam_wander_mm": round(wander_m * 1000, 4),  # mm mein convert kiya
+            "beam_wander_mm": round(wander_m * 1000, 4),
             "scintillation_index": round(scint_index, 4)
         }
     }
