@@ -3,6 +3,7 @@ from core.beam_models import create_spatial_grid, generate_gaussian_beam
 from core.propagation import free_space_transfer_function, propagate_beam, apply_phase_screen
 from core.geometry import get_trajectory_altitudes
 from core.turbulence import generate_phase_screen
+from core.metrics import calculate_beam_wander, calculate_scintillation
 import numpy as np
 
 # 1. API Application initialising
@@ -111,13 +112,17 @@ def test_turbulence_propagation(distance_km: float=1.0, Cn2: float= 1e-1, seed: 
     #final metrics
     final_intensity = np.abs(final_field)**2
     final_peak = float(np.max(final_intensity))
+    wander_m = calculate_beam_wander(final_intensity, X, Y)
+    scint_index = calculate_scintillation(final_intensity)
 
     return {
-        "message": "Beam propagated through turbulence successfully",
+        "message": "Beam propagated and metrics calculated",
         "metrics": {
             "initial_peak": round(initial_peak, 4),
             "final_peak": round(final_peak, 4),
-            "turbulence_strength_Cn2": Cn2,
-            "intensity_drop_percentage": round((1 - (final_peak/initial_peak)) * 100, 2)
+            "intensity_drop_percentage": round((1 - (final_peak/initial_peak)) * 100, 2),
+            "beam_wander_mm": round(wander_m * 1000, 4),  # mm mein convert kiya
+            "scintillation_index": round(scint_index, 4)
         }
     }
+
