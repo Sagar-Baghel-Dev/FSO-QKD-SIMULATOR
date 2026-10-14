@@ -28,3 +28,8 @@ def propagate_beam (field,H):
     field_out = np.fft.ifft2(field_fft_propagated)
 
     return field_out
+
+def apply_phase_screen(field, phase_screen):
+    """ applying phase screen effects on laser """
+    
+    return field * np.exp(1j * phase_screen)

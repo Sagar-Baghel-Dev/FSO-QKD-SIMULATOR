@@ -1,7 +1,8 @@
 from fastapi import FastAPI
 from core.beam_models import create_spatial_grid, generate_gaussian_beam
-from core.propagation import free_space_transfer_function, propagate_beam
+from core.propagation import free_space_transfer_function, propagate_beam, apply_phase_screen
 from core.geometry import get_trajectory_altitudes
+from core.turbulence import generate_phase_screen
 import numpy as np
 
 # 1. API Application initialising
@@ -82,5 +83,41 @@ def calculate_trajectory(distance_km: float = 100.0, tx_altitude_m: float = 15.0
         "trajectory": {
             "distances_m": z_points,
             "altitudes_m": [round(alt, 2) for alt in altitudes]
+        }
+    }
+
+@app.get("/propagate-turbulence")
+def test_turbulence_propagation(distance_km: float=1.0, Cn2: float= 1e-1, seed: int=42):
+    """ passing laser through phase screens"""
+    grid_size = 256
+    grid_length_m = 0.5
+    wavelength_m = 1550e-9
+    distance_m = distance_km * 1000.0
+
+    #initial beam formation
+    X, Y, dx = create_spatial_grid(N=grid_size, L=grid_length_m)
+    initial_field, initial_peak = generate_gaussian_beam(X, Y, w0_mm=50.0)
+
+    #phase screen generation
+    phase_screen = generate_phase_screen(N=grid_size, dx=dx, Cn2=Cn2, wavelength=wavelength_m, dz=distance_m, seed=seed )
+
+    #passing Beam through phase screen
+    distorted_field = apply_phase_screen(initial_field, phase_screen)
+
+    #propagating distroted beam in free space 
+    H = free_space_transfer_function(N=grid_size, dx=dx, wavelength=wavelength_m, dz=distance_m)
+    final_field = propagate_beam(distorted_field, H)
+
+    #final metrics
+    final_intensity = np.abs(final_field)**2
+    final_peak = float(np.max(final_intensity))
+
+    return {
+        "message": "Beam propagated through turbulence successfully",
+        "metrics": {
+            "initial_peak": round(initial_peak, 4),
+            "final_peak": round(final_peak, 4),
+            "turbulence_strength_Cn2": Cn2,
+            "intensity_drop_percentage": round((1 - (final_peak/initial_peak)) * 100, 2)
         }
     }
