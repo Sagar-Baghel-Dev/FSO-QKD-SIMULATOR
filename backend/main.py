@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 from core.beam_models import create_spatial_grid, generate_gaussian_beam
+from core.propagation import free_space_transfer_function, propagate_beam
+import numpy as np
 
 # 1. API Application initialising
 app = FastAPI(title="FSO-QKD Simulation Engine")
@@ -27,5 +29,36 @@ def initialize_beam(w0_mm: float=100.0, grid_size: int = 256, grid_length_m: flo
         },
         "metrics": {
             "peak_intensity": round(peak_int, 4)
+        }
+    }
+
+@app.get("/propagate-test")
+def test_propagation(distance_km: float = 10.0, w0_mm: float = 100.0, wavelength_nm: float = 1550.0):
+    """ Ek test API jo laser banayegi aur usko 10km (ya given distance) aage propagate karegi. """
+    
+    # setting up parameters
+    grid_size = 256
+    grid_length_m = 2.0
+    distance_m = distance_km*1000.0
+    wavelength_m = wavelength_nm*1e-9
+
+    # Initial beam formation
+    X,Y,dx = create_spatial_grid(N= grid_size, L=grid_length_m)
+    initial_field, initial_peak = generate_gaussian_beam(X,Y,w0_mm) 
+
+    #beam Propagation
+    H = free_space_transfer_function(N= grid_size, dx=dx, wavelength= wavelength_m, dz= distance_m)
+    final_field = propagate_beam(initial_field,H)
+
+    #finding Final itesity
+    final_intensity = np.abs(final_field)**2
+    final_peak = float(np.max(final_intensity))
+
+    return {
+        "message": f"Beam successfully propagated to {distance_km} km",
+        "metrics": {
+            "initial_peak_intensity": round(initial_peak, 4),
+            "final_peak_intensity": round(final_peak, 4),
+            "intensity_drop_percentage": round((1 - (final_peak/initial_peak)) * 100, 2)
         }
     }
