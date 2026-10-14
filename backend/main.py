@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from core.beam_models import create_spatial_grid, generate_gaussian_beam
 from core.propagation import free_space_transfer_function, propagate_beam
+from core.geometry import get_trajectory_altitudes
 import numpy as np
 
 # 1. API Application initialising
@@ -60,5 +61,26 @@ def test_propagation(distance_km: float = 10.0, w0_mm: float = 100.0, wavelength
             "initial_peak_intensity": round(initial_peak, 4),
             "final_peak_intensity": round(final_peak, 4),
             "intensity_drop_percentage": round((1 - (final_peak/initial_peak)) * 100, 2)
+        }
+    }
+
+@app.get("/calculate_trajectory")
+def calculate_trajectory(distance_km: float = 100.0, tx_altitude_m: float = 15.0):
+    distance_m = distance_km * 1000.0
+    z_points, altitudes = get_trajectory_altitudes(
+        total_distance_m=distance_m, 
+        tx_altitude_m=tx_altitude_m,
+        num_points=10  # for testing dividing the path in 10parts
+    )
+
+    return {
+        "message": "Earth curvature trajectory calculated successfully",
+        "parameters": {
+            "total_distance_km": distance_km,
+            "transmitter_altitude_m": tx_altitude_m
+        },
+        "trajectory": {
+            "distances_m": z_points,
+            "altitudes_m": [round(alt, 2) for alt in altitudes]
         }
     }
