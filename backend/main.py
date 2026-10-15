@@ -5,6 +5,7 @@ from core.geometry import get_trajectory_altitudes
 from core.turbulence import generate_phase_screen
 from core.metrics import calculate_beam_wander, calculate_scintillation
 from core.attenuation import calculate_atmospheric_attenuation, apply_attenuation
+from core.qkd import calculate_qkd_metrics
 import numpy as np
 
 # 1. API Application initialising
@@ -131,3 +132,61 @@ def test_turbulence_propagation(distance_km: float=1.0, Cn2: float= 1e-1, seed: 
         }
     }
 
+@app.get("/full-simulation")
+def run_full_simulation(
+    distance_km: float = 50.0, 
+    attenuation_db_km: float = 0.2, 
+    Cn2: float = 1e-14
+):
+    """
+    MASTER ENDPOINT: FSO_QKD_DRDO_PROJECT ka pura flow ek sath chalayega.
+    Laser -> Geometry -> Turbulence -> Propagation -> Attenuation -> QKD
+    """
+    grid_size = 256
+    grid_length_m = 0.5
+    wavelength_m = 1550e-9
+    distance_m = distance_km * 1000.0
+
+    # 1. Initialize
+    X, Y, dx = create_spatial_grid(N=grid_size, L=grid_length_m)
+    initial_field, initial_peak = generate_gaussian_beam(X, Y, w0_mm=50.0)
+
+    # 2. Atmosphere & Turbulence
+    phase_screen = generate_phase_screen(N=grid_size, dx=dx, Cn2=Cn2, wavelength=wavelength_m, dz=distance_m, seed=42)
+    distorted_field = apply_phase_screen(initial_field, phase_screen)
+    
+    # 3. Wave Propagation (Split-Step FFT)
+    H = free_space_transfer_function(N=grid_size, dx=dx, wavelength=wavelength_m, dz=distance_m)
+    final_field = propagate_beam(distorted_field, H)
+    final_intensity = np.abs(final_field)**2
+
+    # 4. Attenuation Loss
+    transmittance, total_loss_db = calculate_atmospheric_attenuation(distance_km, attenuation_db_km)
+    attenuated_intensity = apply_attenuation(final_intensity, transmittance)
+    
+    # 5. Physics Metrics
+    wander_m = calculate_beam_wander(attenuated_intensity, X, Y)
+    scint_index = calculate_scintillation(attenuated_intensity)
+
+    # 6. Quantum Metrics (BB84)
+    qber, skr_bps = calculate_qkd_metrics(transmittance)
+
+    return {
+        "status": "Simulation Complete",
+        "input_parameters": {
+            "distance_km": distance_km,
+            "weather_attenuation_db_km": attenuation_db_km,
+            "turbulence_Cn2": Cn2
+        },
+        "physics_results": {
+            "total_loss_db": round(total_loss_db, 2),
+            "transmittance_percent": round(transmittance * 100, 4),
+            "beam_wander_mm": round(wander_m * 1000, 4),
+            "scintillation_index": round(scint_index, 4)
+        },
+        "quantum_results": {
+            "qber_percent": round(qber * 100, 2),
+            "secret_key_rate_kbps": round(skr_bps / 1000, 2),  # Kbps mein convert kiya
+            "is_secure": qber < 0.11  # True agar QBER 11% se kam hai
+        }
+    }
